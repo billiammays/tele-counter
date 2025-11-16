@@ -7,6 +7,8 @@ from telegram.ext import (
     ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 )
 
+from llm_agent import LLM_Agent
+
 # === Configuration ===
 TOKEN: Final = config('BOT_TOKEN')
 
@@ -24,6 +26,8 @@ WARN_THRESHOLDS = [int(e.strip()) for e in WARN_THRESHOLDS]
 # === In-memory tracking ===
 user_counts = {}  # {user_id: {"name": str, "text": n, "video": m}}
 last_reset_time = datetime.now()
+
+llm = LLM_Agent()
 
 print(f'setup complete, time is {last_reset_time}')
 
@@ -46,13 +50,14 @@ async def reset_counts_periodically():
         print("✅ Counts reset at", last_reset_time)
 
 # === Handle incoming messages ===
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                         talkative: bool=True):
     if not update.message or not update.message.from_user:
         return
 
     user = update.message.from_user
     user_id = user.id
-    username = user.username or user.full_name
+    username = user.first_name or user.username  
 
     # check if 24 hours passed
     if check_time():
@@ -94,6 +99,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🚫 {username}, you've exceeded your daily {msg_type} message limit ({limit})."
         )
+
+    # llm stuff
+    text = update.message.text
+    llm.add(
+        user=username,
+        message=text
+    )
+    if talkative or (context.bot.username in text.lower()):
+        ai_msg = llm.invoke()
+        content = ai_msg.content
+        if content != '...':
+            await update.message.reply_text(content)
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+            f"Bot | Message: {content}")
 
 
 # === Command: /usage ===
